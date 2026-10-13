@@ -5,7 +5,7 @@ import Heading from 'client/components/Form/Heading';
 
 export interface RowProps {
   lbl: string;
-  val: string;
+  val: string | boolean;
   key?: string | number;
   children?: ReactNode;
   rowList?: RowProps[];
@@ -13,12 +13,14 @@ export interface RowProps {
   open?: boolean;
   plaintext?: string;
   listResults?: string[];
+  link?: string;
 }
 
 export const StyledRow = styled.div`
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
+  column-gap: 0.5rem;
   padding: 0.25rem;
   &li {
     border-bottom: 1px dashed ${colors.primaryTransparent} !important;
@@ -48,6 +50,7 @@ export const Details = styled.details`
   transition: all 0.2s ease-in-out;
   summary {
     padding-left: 1rem;
+    list-style: none;
     cursor: pointer;
   }
   summary:before {
@@ -70,7 +73,7 @@ const SubRowList = styled.ul`
 
 const PlainText = styled.pre`
   background: ${colors.background};
-  width: 95%;
+  width: 100%;
   white-space: pre-wrap;
   word-wrap: break-word;
   border-radius: 4px;
@@ -79,7 +82,7 @@ const PlainText = styled.pre`
 
 const List = styled.ul`
   // background: ${colors.background};
-  width: 95%;
+  width: 100%;
   white-space: pre-wrap;
   word-wrap: break-word;
   border-radius: 4px;
@@ -99,30 +102,12 @@ const List = styled.ul`
   }
 `;
 
-const isValidDate = (date: any): boolean => {
-  // Checks if a date is within reasonable range
-  const isInRange = (date: Date): boolean => {
-    return date >= new Date('1995-01-01') && date <= new Date('2030-12-31');
-  };
-
-  // Check if input is a timestamp
-  if (typeof date === 'number') {
-    const timestampDate = new Date(date);
-    return !isNaN(timestampDate.getTime()) && isInRange(timestampDate);
-  }
-
-  // Check if input is a date string
-  if (typeof date === 'string') {
-    const dateStringDate = new Date(date);
-    return !isNaN(dateStringDate.getTime()) && isInRange(dateStringDate);
-  }
-
-  // Check if input is a Date object
-  if (date instanceof Date) {
-    return !isNaN(date.getTime()) && isInRange(date);
-  }
-
-  return false;
+// Only date-format strings that actually look like dates, not bare numbers
+const isDateLike = (value: any): boolean => {
+  if (typeof value !== 'string' || value.length < 8 || !/[-/: ]/.test(value)) return false;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return false;
+  return date >= new Date('1995-01-01') && date <= new Date('2030-12-31');
 };
 
 const formatDate = (dateString: string): string => {
@@ -132,14 +117,25 @@ const formatDate = (dateString: string): string => {
     year: 'numeric',
   }).format(new Date(dateString));
 };
+
 const formatValue = (value: any): string => {
-  if (isValidDate(new Date(value))) return formatDate(value);
+  if (isDateLike(value)) return formatDate(value);
   if (typeof value === 'boolean') return value ? '✅' : '❌';
   return value;
 };
 
-const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text);
+// Format a value, as a link when given one
+const showValue = (value: any, link?: string): ReactNode =>
+  link ? (
+    <a href={link} target="_blank" rel="noreferrer">
+      {formatValue(value)}
+    </a>
+  ) : (
+    formatValue(value)
+  );
+
+const copyToClipboard = (text: string | boolean) => {
+  navigator.clipboard.writeText(String(text));
 };
 
 const snip = (text: string, length: number = 80) => {
@@ -172,7 +168,7 @@ export const ExpandableRow = (props: RowProps) => {
                   title={row.val?.toString()}
                   onClick={() => copyToClipboard(row.val)}
                 >
-                  {formatValue(row.val)}
+                  {showValue(row.val, row.link)}
                 </span>
                 {row.plaintext && <PlainText>{row.plaintext}</PlainText>}
                 {row.listResults && (
@@ -210,7 +206,7 @@ export const ListRow = (props: { list: string[]; title: string }) => {
 };
 
 const Row = (props: RowProps) => {
-  const { lbl, val, title, plaintext, listResults, children } = props;
+  const { lbl, val, title, plaintext, listResults, link, children } = props;
   if (children) return <StyledRow key={`${lbl}-${val}`}>{children}</StyledRow>;
   return (
     <StyledRow key={`${lbl}-${val}`}>
@@ -220,7 +216,7 @@ const Row = (props: RowProps) => {
         </span>
       )}
       <span className="val" title={val?.toString()} onClick={() => copyToClipboard(val)}>
-        {formatValue(val)}
+        {showValue(val, link)}
       </span>
       {plaintext && <PlainText>{plaintext}</PlainText>}
       {listResults && (

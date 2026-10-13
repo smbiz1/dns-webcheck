@@ -1,12 +1,19 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 
+import { shouldSkip } from './api/_common/check-skipper.js';
+
 // Load environment variables from .env file
 dotenv.config();
+
+// Log unexpected errors, instead of letting em crash everything
+process.on('uncaughtException', (error) => console.error('Uncaught exception:', error));
+process.on('unhandledRejection', (error) => console.error('Unhandled rejection:', error));
 
 // Create the Express app
 const app = express();
@@ -23,7 +30,7 @@ if (trustProxy) {
   app.set('trust proxy', parsed);
 }
 
-const __filename = new URL(import.meta.url).pathname;
+const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const port = process.env.PORT || 3000; // The port to run the server on
@@ -31,7 +38,12 @@ const API_DIR = '/api'; // Name of the dir containing the lambda functions
 const dirPath = path.join(__dirname, API_DIR); // Path to the lambda functions dir
 const guiPath = path.join(__dirname, 'dist', 'client');
 const placeholderFilePath = path.join(__dirname, 'public', 'placeholder.html');
+let notFoundFilePath = path.join(__dirname, 'public', 'error.html');
 const handlers = {}; // Will store list of API endpoints
+const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+const apiFiles = fs
+  .readdirSync(dirPath, { withFileTypes: true })
+  .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.js'));
 process.env.WC_SERVER = 'true'; // Tells middleware to return in non-lambda mode
 
 // Enable CORS
@@ -40,6 +52,19 @@ app.use(
     origin: process.env.API_CORS_ORIGIN || '*',
   }),
 );
+
+// Sits above the GUI catch-all, so it still answers even when the app itself is broken
+app.get('/healthz', (req, res) => {
+  res.set('Cache-Control', 'no-store'); // Stops a proxy handing a monitor a stale "ok"
+  res.status(200).json({
+    status: 'ok',
+    // Routes register async, so we're listening a moment before they're actually live
+    ready: Object.keys(handlers).length === apiFiles.length,
+    version,
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Define max requests within each time frame
 const limits = [
@@ -73,25 +98,22 @@ if (process.env.API_ENABLE_RATE_LIMIT === 'true') {
 }
 
 // Read and register each API function as an Express routes
-fs.readdirSync(dirPath, { withFileTypes: true })
-  .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.js'))
-  .forEach(async (dirent) => {
-    const routeName = dirent.name.split('.')[0];
-    const route = `${API_DIR}/${routeName}`;
-    // const handler = require(path.join(dirPath, dirent.name));
+apiFiles.forEach(async (dirent) => {
+  const routeName = dirent.name.split('.')[0];
+  const route = `${API_DIR}/${routeName}`;
 
-    const handlerModule = await import(path.join(dirPath, dirent.name));
-    const handler = handlerModule.default || handlerModule;
-    handlers[route] = handler;
+  const handlerModule = await import(pathToFileURL(path.join(dirPath, dirent.name)).href);
+  const handler = handlerModule.default || handlerModule;
+  handlers[route] = handler;
 
-    app.get(route, async (req, res) => {
-      try {
-        await handler(req, res);
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
+  app.get(route, async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
+});
 
 const renderPlaceholderPage = async (res, msgId, logs) => {
   const errorMessages = {
@@ -147,6 +169,12 @@ app.get(API_DIR, async (req, res) => {
   const handlerPromises = Object.entries(handlers).map(async ([route, handler]) => {
     const routeName = route.replace(`${API_DIR}/`, '');
 
+    const { skip, reason } = shouldSkip(routeName, url);
+    if (skip) {
+      results[routeName] = { skipped: reason };
+      return;
+    }
+
     try {
       const result = await Promise.race([
         executeHandler(handler, req, res),
@@ -181,8 +209,10 @@ if (process.env.DISABLE_GUI && process.env.DISABLE_GUI !== 'false') {
   });
 } else {
   // GUI enabled, and build files present, let's go!!
+  notFoundFilePath = path.join(guiPath, '404.html');
   app.use(express.static('dist/client/'));
   app.use(async (req, res, next) => {
+    if (req.path.startsWith(`${API_DIR}/`)) return next();
     const ssrHandlerPath = path.join(__dirname, 'dist', 'server', 'entry.mjs');
     import(ssrHandlerPath)
       .then(({ handler: ssrHandler }) => {
@@ -197,7 +227,7 @@ if (process.env.DISABLE_GUI && process.env.DISABLE_GUI !== 'false') {
 // Anything left unhandled (which isn't an API endpoint), return a 404
 app.use((req, res, next) => {
   if (!req.path.startsWith(`${API_DIR}/`)) {
-    res.status(404).sendFile(path.join(__dirname, 'public', 'error.html'));
+    res.status(404).sendFile(notFoundFilePath);
   } else {
     next();
   }
