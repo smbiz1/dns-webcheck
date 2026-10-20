@@ -5,12 +5,6 @@ import colors from 'client/styles/colors';
 
 const cardStyles = `
   grid-row: span 2;
-  small {
-    margin-top: 1rem;
-    opacity: 0.5;
-    display: block;
-    a { color: ${colors.primary}; }
-  }
 `;
 
 const TechStackRow = styled.div`
@@ -59,6 +53,7 @@ const TechStackRow = styled.div`
     overflow: hidden;
     &.tech-website {
       -webkit-line-clamp: 1;
+      word-break: break-all;
     }
     a {
       color: ${colors.primary};

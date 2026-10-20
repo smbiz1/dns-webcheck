@@ -1,47 +1,7 @@
-import styled from '@emotion/styled';
-import colors from 'client/styles/colors';
 import { Card } from 'client/components/Form/Card';
-import Heading from 'client/components/Form/Heading';
-
-const Row = styled.div`
-  display: flex;
-  justify-content: space-between;
-  padding: 0.25rem;
-  &:not(:last-child) {
-    border-bottom: 1px solid ${colors.primaryTransparent};
-  }
-  span.lbl {
-    font-weight: bold;
-  }
-  span.val {
-    max-width: 200px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-`;
-
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-  return formatter.format(date);
-};
-
-const DataRow = (props: { lbl: string; val: string }) => {
-  const { lbl, val } = props;
-  return (
-    <Row>
-      <span className="lbl">{lbl}</span>
-      <span className="val" title={val}>
-        {val}
-      </span>
-    </Row>
-  );
-};
+import Row, { ExpandableRow, ListRow } from 'client/components/Form/Row';
+import { fromFinding } from 'client/components/misc/Icon';
+import { REASONS, checkExpiry } from 'client/analysis/rules/ssl';
 
 function getExtendedKeyUsage(oids: string[]) {
   const oidMap: { [key: string]: string } = {
@@ -66,50 +26,62 @@ function getExtendedKeyUsage(oids: string[]) {
   return results.filter((item, index) => results.indexOf(item) === index);
 }
 
-const ListRow = (props: { list: string[]; title: string }) => {
-  const { list, title } = props;
-  return (
-    <>
-      <Heading as="h3" size="small" align="left" color={colors.primary}>
-        {title}
-      </Heading>
-      {list.map((entry: string, index: number) => {
-        return (
-          <Row key={`${title.toLocaleLowerCase()}-${index}`}>
-            <span>{entry}</span>
-          </Row>
-        );
-      })}
-    </>
-  );
+// Days from a certificate's issue to its expiry
+const lifetime = ({ valid_from, valid_to }: any) =>
+  Math.round((Date.parse(valid_to) - Date.parse(valid_from)) / 86_400_000);
+
+// Key type and size, like "RSA 2048-bit" or "EC 256-bit (P-256)"
+const describeKey = ({ bits, modulus, asn1Curve, nistCurve }: any) => {
+  if (!bits) return '';
+  if (modulus) return `RSA ${bits}-bit`;
+  const curve = nistCurve || asn1Curve;
+  return curve ? `EC ${bits}-bit (${curve})` : `${bits}-bit`;
 };
 
 const SslCertCard = (props: { data: any; title: string; actionButtons: any }): JSX.Element => {
   const sslCert = props.data;
-  const {
-    subject,
-    issuer,
-    fingerprint,
-    serialNumber,
-    asn1Curve,
-    nistCurve,
-    valid_to,
-    valid_from,
-    ext_key_usage,
-  } = sslCert;
+  const { subject, issuer, fingerprint, serialNumber, valid_to, valid_from, ext_key_usage } =
+    sslCert;
+  const key = describeKey(sslCert);
+  const days = lifetime(sslCert);
+  const altNames = (sslCert.subjectaltname || '')
+    .split(', ')
+    .map((name: string) => name.replace(/^[^:]+:/, ''))
+    .filter(Boolean);
   return (
     <Card heading={props.title} actionButtons={props.actionButtons}>
-      {subject && <DataRow lbl="Subject" val={subject?.CN} />}
-      {issuer?.O && <DataRow lbl="Issuer" val={issuer.O} />}
+      {subject && <Row lbl="Subject" val={subject.CN} />}
+      {issuer?.O && <Row lbl="Issuer" val={issuer.O} />}
       {typeof sslCert.isValid === 'boolean' && (
-        <DataRow lbl="Trusted" val={sslCert.isValid ? '✅ Yes' : `❌ No (${sslCert.authError})`} />
+        <Row
+          lbl="Trusted"
+          val={sslCert.isValid}
+          no={`No (${sslCert.authError})`}
+          reason={REASONS[sslCert.authError]}
+          term="certificate-trust"
+        />
       )}
-      {asn1Curve && <DataRow lbl="ASN1 Curve" val={asn1Curve} />}
-      {nistCurve && <DataRow lbl="NIST Curve" val={nistCurve} />}
-      {valid_to && <DataRow lbl="Expires" val={formatDate(valid_to)} />}
-      {valid_from && <DataRow lbl="Renewed" val={formatDate(valid_from)} />}
-      {serialNumber && <DataRow lbl="Serial Num" val={serialNumber} />}
-      {fingerprint && <DataRow lbl="Fingerprint" val={fingerprint} />}
+      {key && <Row lbl="Public Key" val={key} />}
+      {valid_to && (
+        <Row
+          lbl="Expires"
+          val={valid_to}
+          term="certificate-expiry"
+          {...fromFinding(checkExpiry(valid_to))}
+        />
+      )}
+      {valid_from && <Row lbl="Renewed" val={valid_from} />}
+      {days > 0 && <Row lbl="Lifetime" val={`${days} days`} />}
+      {serialNumber && <Row lbl="Serial Num" val={serialNumber} />}
+      {fingerprint && <Row lbl="Fingerprint" val={fingerprint} />}
+      {altNames.length > 0 && (
+        <ExpandableRow
+          lbl="Alternative Names"
+          val={altNames.length}
+          rowList={altNames.map((name: string) => ({ lbl: name }))}
+        />
+      )}
+      {sslCert.chain?.length > 0 && <ListRow title="Certificate Chain" list={sslCert.chain} />}
       {ext_key_usage && (
         <ListRow title="Extended Key Usage" list={getExtendedKeyUsage(ext_key_usage)} />
       )}

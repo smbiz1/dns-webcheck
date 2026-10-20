@@ -1,30 +1,42 @@
 import { useMemo, type ReactNode } from 'react';
 import styled from '@emotion/styled';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import {
+  faCircleCheck,
+  faCircleExclamation,
+  faCircleInfo,
+  faCircleXmark,
+  faTriangleExclamation,
+} from '@fortawesome/free-solid-svg-icons';
 import colors from 'client/styles/colors';
 import Card from 'client/components/Form/Card';
 import Heading from 'client/components/Form/Heading';
-import type { Finding, Severity } from 'client/analysis/types';
-
-const ORDER: Severity[] = ['critical', 'issue', 'warning', 'info', 'pass'];
+import Icon from 'client/components/misc/Icon';
+import { SEVERITIES, type Finding, type Severity } from 'client/analysis/types';
 
 interface SevMeta {
   label: string;
   color: string;
-  glyph: string;
+  icon: IconDefinition;
   defaultOpen: boolean;
 }
 
 const META: Record<Severity, SevMeta> = {
-  critical: { label: 'Critical', color: colors.danger, glyph: '✕', defaultOpen: true },
-  issue: { label: 'Issues', color: colors.error, glyph: '!', defaultOpen: true },
-  warning: { label: 'Warnings', color: colors.warning, glyph: '△', defaultOpen: false },
-  info: { label: 'Informational', color: colors.info, glyph: 'ⓘ', defaultOpen: false },
-  pass: { label: 'Passes', color: colors.success, glyph: '✓', defaultOpen: false },
+  critical: { label: 'Critical', color: colors.danger, icon: faCircleXmark, defaultOpen: true },
+  issue: { label: 'Issues', color: colors.error, icon: faCircleExclamation, defaultOpen: true },
+  warning: {
+    label: 'Warnings',
+    color: colors.warning,
+    icon: faTriangleExclamation,
+    defaultOpen: false,
+  },
+  info: { label: 'Informational', color: colors.info, icon: faCircleInfo, defaultOpen: false },
+  pass: { label: 'Passes', color: colors.success, icon: faCircleCheck, defaultOpen: false },
 };
 
 const Wrapper = styled(Card)`
   margin: 0 auto;
-  width: 95vw;
+  width: var(--page-width);
   max-height: 100%;
   h2 {
     margin: 0 0 0.75rem 0;
@@ -117,7 +129,7 @@ const AdvisoryPanel = ({ findings, onJumpTo }: Props): ReactNode => {
       pass: [],
     };
     for (const f of findings) grouped[f.severity].push(f);
-    return { grouped, visible: ORDER.filter((sev) => grouped[sev].length) };
+    return { grouped, visible: SEVERITIES.filter((sev) => grouped[sev].length) };
   }, [findings]);
 
   if (!findings.length) return null;
@@ -144,8 +156,8 @@ const AdvisoryPanel = ({ findings, onJumpTo }: Props): ReactNode => {
             <ul className="findings">
               {items.map((f, i) => (
                 <li key={`${f.cardId}-${i}`}>
-                  <span className="glyph" style={{ color: meta.color }} aria-label={meta.label}>
-                    {meta.glyph}
+                  <span className="glyph">
+                    <Icon icon={meta.icon} color={meta.color} label={meta.label} />
                   </span>
                   <span className="body">
                     <button type="button" className="jump" onClick={() => onJumpTo(f.cardId)}>

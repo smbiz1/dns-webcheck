@@ -1,16 +1,5 @@
-import styled from '@emotion/styled';
-import { Card } from 'client/components/Form/Card';
+import { Card, Note } from 'client/components/Form/Card';
 import Row from 'client/components/Form/Row';
-import colors from 'client/styles/colors';
-
-const LearnMoreInfo = styled.p`
-  font-size: 0.8rem;
-  margin-top: 0.5rem;
-  opacity: 0.75;
-  a {
-    color: ${colors.primary};
-  }
-`;
 
 const formatBytes = (n: number): string => {
   if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
@@ -39,7 +28,10 @@ const CarbonCard = (props: { data: any; title: string; actionButtons: any }): JS
       {!carbons?.adjustedBytes && <p>Unable to calculate carbon footprint for host</p>}
       {carbons?.adjustedBytes > 0 && (
         <>
-          <Row lbl="HTML Initial Size" val={formatBytes(carbons.adjustedBytes)} />
+          {props.data.bytes > 0 && (
+            <Row lbl="HTML Initial Size" val={formatBytes(props.data.bytes)} />
+          )}
+          <Row lbl="Adjusted Transfer Size" val={formatBytes(carbons.adjustedBytes)} />
           <Row lbl="CO2 for Initial Load" val={formatGrams(carbons.co2.grid.grams)} />
           <Row lbl="Energy Usage for Load" val={formatKwh(carbons.energy)} />
           {cleanerThan > 0 && (
@@ -47,8 +39,7 @@ const CarbonCard = (props: { data: any; title: string; actionButtons: any }): JS
           )}
         </>
       )}
-      <br />
-      <LearnMoreInfo>
+      <Note>
         Calculated using the{' '}
         <a
           href="https://sustainablewebdesign.org/estimating-digital-emissions"
@@ -57,7 +48,7 @@ const CarbonCard = (props: { data: any; title: string; actionButtons: any }): JS
         >
           Sustainable Web Model v4
         </a>
-      </LearnMoreInfo>
+      </Note>
     </Card>
   );
 };
