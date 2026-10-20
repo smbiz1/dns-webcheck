@@ -4,10 +4,6 @@ import { Card } from 'client/components/Form/Card';
 import Row from 'client/components/Form/Row';
 
 const cardStyles = `
-span.val {
-  &.up { color: ${colors.success}; }
-  &.down { color: ${colors.danger}; }
-}
 .rank-average {
   text-align: center;
   font-size: 1.8rem;
@@ -21,8 +17,8 @@ span.val {
 const makeRankStats = (data: { date: string; rank: number }[]) => {
   const average = Math.round(data.reduce((acc, cur) => acc + cur.rank, 0) / data.length);
   const today = data[0].rank;
-  const yesterday = data[1].rank;
-  const percentageChange = ((today - yesterday) / yesterday) * 100;
+  const yesterday = data[1]?.rank;
+  const percentageChange = yesterday ? ((today - yesterday) / yesterday) * 100 : null;
   return {
     average,
     percentageChange,
@@ -56,7 +52,7 @@ function Chart(chartData: { date: string; uv: number }[], data: any) {
         />
         <Tooltip
           contentStyle={{ background: colors.background, color: colors.textColor, borderRadius: 4 }}
-          labelFormatter={(value) => ['Date : ', data[value].date]}
+          labelFormatter={(value) => ['Date : ', data[value as number].date]}
         />
         <Area
           type="monotone"
@@ -78,10 +74,12 @@ const RankCard = (props: { data: any; title: string; actionButtons: any }): JSX.
   return (
     <Card heading={props.title} actionButtons={props.actionButtons} styles={cardStyles}>
       <div className="rank-average">{data[0].rank.toLocaleString()}</div>
-      <Row
-        lbl="Change since Yesterday"
-        val={`${percentageChange > 0 ? '+' : ''} ${percentageChange.toFixed(2)}%`}
-      />
+      {percentageChange != null && (
+        <Row
+          lbl="Change since Yesterday"
+          val={`${percentageChange > 0 ? '+' : ''} ${percentageChange.toFixed(2)}%`}
+        />
+      )}
       <Row lbl="Historical Average Rank" val={average.toLocaleString()} />
       <div className="chart-container">{Chart(chartData, data)}</div>
     </Card>
