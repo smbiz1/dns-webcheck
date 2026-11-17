@@ -6,15 +6,29 @@ import Heading from 'client/components/Form/Heading';
 import colors from 'client/styles/colors';
 
 export const StyledCard = styled.section<{ styles?: string }>`
-  background: ${colors.backgroundLighter};
+  background: ${colors.backgroundRaised};
   color: ${colors.textColor};
-  box-shadow: 4px 4px 0px ${colors.bgShadowColor};
-  border-radius: 8px;
+  border: 1px solid ${colors.primaryTransparent};
+  border-radius: 4px;
   padding: 1rem;
   position: relative;
   max-height: 54rem;
   overflow: auto;
+  overflow-wrap: anywhere;
+  h4 {
+    margin: 1rem 0 0.5rem 0;
+  }
   ${(props) => props.styles}
+`;
+
+// Small print under a card's rows
+export const Note = styled.small`
+  display: block;
+  margin-top: 0.75rem;
+  color: ${colors.textColorTertiary};
+  a {
+    color: ${colors.primaryIncreasedContrast};
+  }
 `;
 
 interface CardProps {
@@ -31,7 +45,12 @@ export const Card = (props: CardProps): JSX.Element => {
       <StyledCard styles={styles}>
         {actionButtons && actionButtons}
         {heading && (
-          <Heading className="inner-heading" as="h3" align="left" color={colors.primary}>
+          <Heading
+            className="inner-heading"
+            as="h3"
+            align="left"
+            color={colors.primaryIncreasedContrast}
+          >
             {heading}
           </Heading>
         )}
