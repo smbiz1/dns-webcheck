@@ -1,30 +1,42 @@
 import { useMemo, type ReactNode } from 'react';
 import styled from '@emotion/styled';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import {
+  faCircleCheck,
+  faCircleExclamation,
+  faCircleInfo,
+  faCircleXmark,
+  faTriangleExclamation,
+} from '@fortawesome/free-solid-svg-icons';
 import colors from 'client/styles/colors';
 import Card from 'client/components/Form/Card';
 import Heading from 'client/components/Form/Heading';
-import type { Finding, Severity } from 'client/analysis/types';
-
-const ORDER: Severity[] = ['critical', 'issue', 'warning', 'info', 'pass'];
+import Icon from 'client/components/misc/Icon';
+import { SEVERITIES, type Finding, type Severity } from 'client/analysis/types';
 
 interface SevMeta {
   label: string;
   color: string;
-  glyph: string;
+  icon: IconDefinition;
   defaultOpen: boolean;
 }
 
 const META: Record<Severity, SevMeta> = {
-  critical: { label: 'Critical', color: colors.danger, glyph: '✕', defaultOpen: true },
-  issue: { label: 'Issues', color: colors.error, glyph: '!', defaultOpen: true },
-  warning: { label: 'Warnings', color: colors.warning, glyph: '△', defaultOpen: false },
-  info: { label: 'Informational', color: colors.info, glyph: 'ⓘ', defaultOpen: false },
-  pass: { label: 'Passes', color: colors.success, glyph: '✓', defaultOpen: false },
+  critical: { label: 'Critical', color: colors.danger, icon: faCircleXmark, defaultOpen: true },
+  issue: { label: 'Issues', color: colors.error, icon: faCircleExclamation, defaultOpen: true },
+  warning: {
+    label: 'Warnings',
+    color: colors.warning,
+    icon: faTriangleExclamation,
+    defaultOpen: false,
+  },
+  info: { label: 'Informational', color: colors.info, icon: faCircleInfo, defaultOpen: false },
+  pass: { label: 'Passes', color: colors.success, icon: faCircleCheck, defaultOpen: false },
 };
 
 const Wrapper = styled(Card)`
   margin: 0 auto;
-  width: 95vw;
+  width: var(--page-width);
   max-height: 100%;
   h2 {
     margin: 0 0 0.75rem 0;
@@ -59,47 +71,80 @@ const Wrapper = styled(Card)`
       content: '▼';
     }
   }
-  ul.findings {
-    list-style: none;
-    margin: 0.25rem 0 0.5rem 0;
-    padding: 0;
-    li {
-      display: grid;
-      grid-template-columns: 1.25rem 1fr;
-      gap: 0.5rem;
-      align-items: baseline;
-      padding: 0.3rem 0;
-      .glyph {
-        font-weight: 700;
-        line-height: 1;
-        text-align: center;
-        align-self: center;
+`;
+
+const List = styled.ul`
+  list-style: none;
+  margin: 0.25rem 0 0.5rem 0;
+  padding: 0;
+  li {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    gap: 0.5rem;
+    align-items: baseline;
+    padding: 0.3rem 0;
+    .glyph {
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+      align-self: center;
+    }
+    .body {
+      button.jump {
+        background: none;
+        border: none;
+        color: ${colors.textColor};
+        font-family: inherit;
+        font-size: inherit;
+        padding: 0;
+        text-align: left;
+        cursor: pointer;
+        &:hover,
+        &:focus-visible {
+          color: ${colors.primaryIncreasedContrast};
+          outline: none;
+        }
       }
-      .body {
-        button.jump {
-          background: none;
-          border: none;
-          color: ${colors.textColor};
-          font-family: inherit;
-          font-size: inherit;
-          padding: 0;
-          text-align: left;
-          cursor: pointer;
-          &:hover,
-          &:focus-visible {
-            color: ${colors.primary};
-            outline: none;
-          }
-        }
-        .detail {
-          color: ${colors.textColorSecondary};
-          font-size: 0.85rem;
-          display: block;
-        }
+      .detail {
+        color: ${colors.textColorSecondary};
+        font-size: 0.85rem;
+        display: block;
       }
     }
   }
 `;
+
+// Each finding beside its severity icon, as a link to its card when there's one to jump to
+export const FindingList = (props: {
+  findings: Finding[];
+  onJumpTo?: (cardId: string) => void;
+}) => {
+  const { findings, onJumpTo } = props;
+  return (
+    <List>
+      {findings.map((f, i) => {
+        const { label, color, icon } = META[f.severity];
+        return (
+          <li key={`${f.cardId}-${i}`}>
+            <span className="glyph">
+              <Icon icon={icon} color={color} label={label} />
+            </span>
+            <span className="body">
+              {onJumpTo ? (
+                <button type="button" className="jump" onClick={() => onJumpTo(f.cardId)}>
+                  {f.title}
+                </button>
+              ) : (
+                f.title
+              )}
+              {f.detail && <span className="detail">{f.detail}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </List>
+  );
+};
 
 interface Props {
   findings: Finding[];
@@ -117,7 +162,7 @@ const AdvisoryPanel = ({ findings, onJumpTo }: Props): ReactNode => {
       pass: [],
     };
     for (const f of findings) grouped[f.severity].push(f);
-    return { grouped, visible: ORDER.filter((sev) => grouped[sev].length) };
+    return { grouped, visible: SEVERITIES.filter((sev) => grouped[sev].length) };
   }, [findings]);
 
   if (!findings.length) return null;
@@ -135,27 +180,13 @@ const AdvisoryPanel = ({ findings, onJumpTo }: Props): ReactNode => {
             key={sev}
             id={`advisory-${sev}`}
             open={meta.defaultOpen}
-            style={{ background: `${meta.color}0D` }}
+            style={{ background: `color-mix(in srgb, ${meta.color} 5%, transparent)` }}
           >
             <summary style={{ color: meta.color }}>
               {meta.label}
               <span className="count">({items.length})</span>
             </summary>
-            <ul className="findings">
-              {items.map((f, i) => (
-                <li key={`${f.cardId}-${i}`}>
-                  <span className="glyph" style={{ color: meta.color }} aria-label={meta.label}>
-                    {meta.glyph}
-                  </span>
-                  <span className="body">
-                    <button type="button" className="jump" onClick={() => onJumpTo(f.cardId)}>
-                      {f.title}
-                    </button>
-                    {f.detail && <span className="detail">{f.detail}</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <FindingList findings={items} onJumpTo={onJumpTo} />
           </details>
         );
       })}
