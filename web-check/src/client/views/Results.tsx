@@ -1,16 +1,19 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams } from 'react-router';
 import styled from '@emotion/styled';
 import { ToastContainer } from 'react-toastify';
+import {
+  faArrowUpRightFromSquare,
+  faRotateRight,
+  faUpRightAndDownLeftFromCenter,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 
 import colors from 'client/styles/colors';
-import Heading from 'client/components/Form/Heading';
 import Modal from 'client/components/Form/Modal';
-import Footer from 'client/components/misc/Footer';
-import Nav from 'client/components/Form/Nav';
 import Loader from 'client/components/misc/Loader';
 import ErrorBoundary from 'client/components/misc/ErrorBoundary';
-import DocContent from 'client/components/misc/DocContent';
+import CheckDetail from 'client/components/misc/CheckDetail';
 import ProgressBar, {
   type LoadingJob,
   type LoadingState,
@@ -22,22 +25,28 @@ import NoResults from 'client/components/misc/NoResults';
 import ResultsMasonryGrid from 'client/components/misc/ResultsMasonryGrid';
 import ViewRaw from 'client/components/misc/ViewRaw';
 
-import { determineAddressType, type AddressType } from 'client/utils/address-type-checker';
+import {
+  determineAddressType,
+  normalizeAddress,
+  type AddressType,
+} from 'client/utils/address-type-checker';
 import { hasData } from 'client/utils/result-processor';
 import keys from 'client/utils/get-keys';
+import { getSetting } from 'client/utils/settings';
 import useJobs from 'client/hooks/useJobs';
-import { jobs, allCards, allCardIds } from 'client/jobs/registry';
+import { isCategory } from '@/data/categories';
+import { checks, isCheck } from '@/data/checks';
+import { jobsFor, cardsFor } from 'client/jobs/registry';
 import { runAnalysis } from 'client/analysis/registry';
 
 const ResultsOuter = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding-top: 1rem;
 `;
 
 const ResultsContent = styled.section`
-  width: 95vw;
+  width: var(--page-width);
   margin: 0 auto;
   @keyframes cardFlash {
     0%,
@@ -52,58 +61,54 @@ const ResultsContent = styled.section`
   }
   .flash > section {
     animation: cardFlash 1.2s ease-out;
-    border-radius: 8px;
+    border-radius: 4px;
   }
 `;
 
-const makeSiteName = (address: string): string => {
-  try {
-    const withScheme = /^https?:\/\//i.test(address) ? address : `https://${address}`;
-    return new URL(withScheme).hostname.replace(/^www\./, '');
-  } catch {
-    return address;
-  }
-};
-
-const makeActionButtons = (title: string, refresh: () => void, showInfo: () => void): ReactNode => (
+const makeActionButtons = (title: string, expand: () => void, refresh: () => void) => (
   <ActionButtons
     actions={[
-      { label: `Info about ${title}`, onClick: showInfo, icon: 'ⓘ' },
-      { label: `Re-fetch ${title} data`, onClick: refresh, icon: '↻' },
+      { label: `Expand ${title}`, icon: faUpRightAndDownLeftFromCenter, onClick: expand },
+      { label: `Re-fetch ${title} data`, icon: faRotateRight, onClick: refresh },
     ]}
   />
 );
 
 const Results = (props: { address?: string }): JSX.Element => {
-  const address = props.address || useParams().urlToScan || '';
-  const [addressType, setAddressType] = useState<AddressType>('empt');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalContent, setModalContent] = useState<ReactNode>(<></>);
+  const { urlToScan, tool = '' } = useParams();
+  const address = props.address || urlToScan || '';
+  const addressType: AddressType = useMemo(() => determineAddressType(address), [address]);
+  // The dialog keeps its check after closing, so it can fade out with it
+  const [detail, setDetail] = useState<string>();
+  const [detailOpen, setDetailOpen] = useState(false);
 
-  useEffect(() => {
-    if (addressType === 'empt') setAddressType(determineAddressType(address));
-  }, [address, addressType]);
+  // Optional category or check in the path narrows the scan, unknown values fall back to everything
+  const category = isCategory(tool) ? tool : undefined;
+  const check = isCheck(tool) ? tool : undefined;
+  const skip = useMemo(() => getSetting('skippedChecks') as string[], []);
+  const activeJobs = useMemo(() => jobsFor({ category, check, skip }), [category, check, skip]);
+  const activeCards = useMemo(() => cardsFor({ category, check, skip }), [category, check, skip]);
 
-  const { state: jobsState, retry, ipLookupError } = useJobs(address, addressType, jobs);
+  const { state: jobsState, retry, ipLookupError } = useJobs(address, addressType, activeJobs);
 
   // Shape useJobs state for the existing ProgressBar contract
   const loadingJobs: LoadingJob[] = useMemo(
     () =>
-      allCardIds.map((id) => {
+      activeCards.map(({ card: { id, title } }) => {
         const e = jobsState[id] || { state: 'loading' as LoadingState };
         return {
-          name: id,
+          id,
+          name: title,
           state: e.state,
           error: e.error,
           timeTaken: e.timeTaken,
           retry: () => retry(id),
         };
       }),
-    [jobsState, retry],
+    [jobsState, retry, activeCards],
   );
 
-  // Expose successful job results on window.webCheck for debugging,
-  // resetting on new input so prior scans cannot accumulate
+  // Expose successful job results on window.webCheck for debugging
   useEffect(() => {
     (window as any).webCheck = {};
   }, [address]);
@@ -117,28 +122,40 @@ const Results = (props: { address?: string }): JSX.Element => {
     });
   }, [jobsState]);
 
-  const showInfo = (id: string) => {
-    setModalContent(DocContent(id));
-    setModalOpen(true);
-  };
-
-  const showErrorModal = (content: ReactNode) => {
-    setModalContent(content);
-    setModalOpen(true);
-  };
-
   // Resolve each card's data, applying picker and falling back when needed
-  const renderable = allCards.map(({ jobId, card }) => {
+  const renderable = activeCards.map(({ jobId, card }) => {
     const entry = jobsState[card.id];
     const raw = entry?.raw;
     let data = raw && card.pick ? card.pick(raw) : raw;
     if (!hasData(data) && card.fallback) data = card.fallback(jobsState);
-    return { jobId, card, data, entry };
+    return { jobId, card, data, entry, ready: hasData(data) && !entry?.error };
   });
 
-  const cardsToShow = renderable.filter(({ data, entry }) => hasData(data) && !entry?.error);
+  const cardsToShow = renderable.filter(({ ready }) => ready);
 
-  const findings = useMemo(() => runAnalysis(jobsState), [jobsState]);
+  const findings = useMemo(() => runAnalysis(jobsState, activeCards), [jobsState, activeCards]);
+
+  // Everything the detail view needs for one check
+  const detailFor = (id?: string) => {
+    const item = renderable.find(({ card }) => card.id === id);
+    if (!item) return undefined;
+    return {
+      ...item,
+      findings: findings.filter((f) => f.cardId === id),
+      retry: () => retry(item.card.id),
+    };
+  };
+  const single = detailFor(check);
+  const expanded = detailFor(detail);
+  const showDetail = (id: string) => {
+    setDetail(id);
+    setDetailOpen(true);
+  };
+  const closeDetail = () => setDetailOpen(false);
+
+  // Show the loader until the first few checks have settled
+  const settled = loadingJobs.filter((j) => j.state !== 'loading').length;
+  const loading = settled < Math.min(35, loadingJobs.length);
 
   // Detect a catastrophic API outage when the bulk of settled jobs error or time out
   const apiUnreachable = useMemo(() => {
@@ -148,15 +165,24 @@ const Results = (props: { address?: string }): JSX.Element => {
     return settled.length >= entries.length / 2 && dead.length / settled.length >= 0.9;
   }, [jobsState]);
 
+  // Every check settled as skipped, e.g. when the admin has blocked the target host
+  const allSkipped = useMemo(() => {
+    const entries = Object.values(jobsState);
+    return entries.length > 0 && entries.every((e) => e?.state === 'skipped');
+  }, [jobsState]);
+  const skipReason = allSkipped ? Object.values(jobsState).find((e) => e?.error)?.error : undefined;
+
   // Pick the highest-priority error state, if any
-  let errorKind: 'invalid' | 'unreachable' | 'api-down' | 'disabled' | null = null;
+  let errorKind: 'invalid' | 'unreachable' | 'api-down' | 'disabled' | 'blocked' | null = null;
   if (keys.disableEverything) {
     errorKind = 'disabled';
   } else if (addressType === 'err') {
     errorKind = 'invalid';
   } else if (ipLookupError) {
     errorKind = 'unreachable';
-  } else if (apiUnreachable) {
+  } else if (allSkipped && !single) {
+    errorKind = 'blocked';
+  } else if (apiUnreachable && !single) {
     errorKind = 'api-down';
   }
 
@@ -172,57 +198,70 @@ const Results = (props: { address?: string }): JSX.Element => {
 
   return (
     <ResultsOuter>
-      <Nav>
-        {address && (
-          <Heading color={colors.textColor} size="medium">
-            {addressType === 'url' && (
-              <a
-                target="_blank"
-                rel="noreferrer"
-                href={/^https?:\/\//i.test(address) ? address : `https://${address}`}
-              >
-                <img width="32px" alt="" src={`https://icon.horse/icon/${makeSiteName(address)}`} />
-              </a>
+      {errorKind && (
+        <NoResults kind={errorKind} address={address} error={ipLookupError || skipReason} />
+      )}
+      {!single && <ProgressBar loadStatus={loadingJobs} showDetails={showDetail} />}
+      {!single && <Loader show={loading} jobs={loadingJobs} />}
+      {!errorKind && (
+        <>
+          {!single && <AdvisoryPanel findings={findings} onJumpTo={jumpToCard} />}
+          <ResultsContent>
+            {single ? (
+              <CheckDetail {...single} />
+            ) : (
+              <ResultsMasonryGrid minColWidth={336}>
+                {cardsToShow.map(({ card, data }) => (
+                  <div id={`card-${card.id}`} key={`eb-${card.id}`}>
+                    <ErrorBoundary title={card.title}>
+                      <card.Component
+                        key={card.id}
+                        data={data}
+                        title={card.title}
+                        actionButtons={makeActionButtons(
+                          card.title,
+                          () => showDetail(card.id),
+                          () => retry(card.id),
+                        )}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                ))}
+              </ResultsMasonryGrid>
             )}
-            {makeSiteName(address)}
-          </Heading>
-        )}
-      </Nav>
-      {errorKind && <NoResults kind={errorKind} address={address} error={ipLookupError} />}
-      <ProgressBar loadStatus={loadingJobs} showModal={showErrorModal} showJobDocs={showInfo} />
-      <Loader show={loadingJobs.filter((j) => j.state !== 'loading').length < 5} />
-      <AdvisoryPanel findings={findings} onJumpTo={jumpToCard} />
-      <ResultsContent>
-        <ResultsMasonryGrid minColWidth={336}>
-          {cardsToShow.map(({ card, data }) => (
-            <div id={`card-${card.id}`} key={`eb-${card.id}`}>
-              <ErrorBoundary title={card.title}>
-                <card.Component
-                  key={card.id}
-                  data={data}
-                  title={card.title}
-                  actionButtons={makeActionButtons(
-                    card.title,
-                    () => retry(card.id),
-                    () => showInfo(card.id),
-                  )}
-                />
-              </ErrorBoundary>
-            </div>
-          ))}
-        </ResultsMasonryGrid>
-      </ResultsContent>
-      <ViewRaw
-        everything={renderable.map((r) => ({
-          id: r.card.id,
-          title: r.card.title,
-          result: r.data,
-        }))}
-      />
-      <AdditionalResources url={address} />
+          </ResultsContent>
+          {!loading && (
+            <ViewRaw
+              everything={renderable.map((r) => ({
+                id: r.card.id,
+                title: r.card.title,
+                result: r.data,
+              }))}
+            />
+          )}
+        </>
+      )}
+      {!loading && (
+        <AdditionalResources
+          url={address}
+          categories={check ? checks[check].categories : category && [category]}
+        />
+      )}
 
-      <Modal isOpen={modalOpen} closeModal={() => setModalOpen(false)}>
-        {modalContent}
+      <Modal isOpen={detailOpen} closeModal={closeDetail} label={expanded?.card.title}>
+        {expanded && (
+          <CheckDetail
+            {...expanded}
+            actions={[
+              {
+                label: 'Open in its own page',
+                icon: faArrowUpRightFromSquare,
+                href: `/${expanded.card.id}/${normalizeAddress(address)}`,
+              },
+              { label: 'Close', icon: faXmark, onClick: closeDetail },
+            ]}
+          />
+        )}
       </Modal>
       <ToastContainer
         limit={3}
@@ -231,7 +270,6 @@ const Results = (props: { address?: string }): JSX.Element => {
         theme="dark"
         position="bottom-right"
       />
-      <Footer />
     </ResultsOuter>
   );
 };
