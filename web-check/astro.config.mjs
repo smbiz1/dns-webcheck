@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import { loadEnv } from 'vite';
 
@@ -10,7 +11,6 @@ import sitemap from '@astrojs/sitemap';
 import vercelAdapter from '@astrojs/vercel';
 import netlifyAdapter from '@astrojs/netlify';
 import nodeAdapter from '@astrojs/node';
-import cloudflareAdapter from '@astrojs/cloudflare';
 
 // Pre-load .env so values are available in this config, before Vite
 const fileEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
@@ -19,8 +19,15 @@ const fileEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ''
 const unwrapEnvVar = (varName, fallbackValue) =>
   process.env[varName] ?? fileEnv[varName] ?? fallbackValue;
 
-// Determine the deploy target (vercel, netlify, cloudflare, node)
-const deployTarget = unwrapEnvVar('PLATFORM', 'node').toLowerCase();
+// Infer the platform from the env vars they set
+const guessPlatform = () => {
+  if (process.env.VERCEL) return 'vercel';
+  if (process.env.NETLIFY) return 'netlify';
+  return 'node';
+};
+
+// Determine the deploy target (vercel, netlify, node)
+const deployTarget = unwrapEnvVar('PLATFORM', guessPlatform()).toLowerCase();
 
 // Determine the output mode (static or server). Mixed prerender supported in static mode
 const output = unwrapEnvVar('OUTPUT', 'static');
@@ -32,10 +39,32 @@ const site = unwrapEnvVar('SITE_URL', 'https://web-check.xyz');
 const base = unwrapEnvVar('BASE_URL', '/');
 
 // Should run the app in boss-mode (requires extra configuration)
-const isBossServer = unwrapEnvVar('BOSS_SERVER', false);
+const isBossServer = unwrapEnvVar('BOSS_SERVER', false) === 'true';
+
+// Give check, build and sync their own Vite cache, so they don't overwrite dev's deps
+const separateBuildCache = {
+  name: 'separate-build-cache',
+  hooks: {
+    'astro:config:setup': ({ command, updateConfig }) => {
+      if (command !== 'dev') updateConfig({ vite: { cacheDir: 'node_modules/.vite-build' } });
+    },
+  },
+};
+
+// Drop the trailing slash from sitemap URLs, so they match canonicals and links
+const dropTrailingSlash = (item) => {
+  const url = new URL(item.url);
+  url.pathname = url.pathname.replace(/\/$/, '');
+  return { ...item, url: url.href };
+};
 
 // Initialize Astro integrations
-const integrations = [svelte(), react(), sitemap()];
+const integrations = [
+  svelte(),
+  react(),
+  sitemap({ filter: (page) => !page.includes('/account'), serialize: dropTrailingSlash }),
+  separateBuildCache,
+];
 
 // Set the appropriate adapter, based on the deploy target
 function getAdapter(target) {
@@ -44,8 +73,6 @@ function getAdapter(target) {
       return vercelAdapter();
     case 'netlify':
       return netlifyAdapter();
-    case 'cloudflare':
-      return cloudflareAdapter();
     case 'node':
       return nodeAdapter({ mode: 'middleware' });
     default:
@@ -66,13 +93,35 @@ console.log(
 );
 
 const redirects = {
-  '/about': '/check/about',
+  '/check/about': '/checks',
 };
 
 // Skip the marketing homepage for self-hosted users
-if (!isBossServer && isBossServer !== true) {
+if (!isBossServer) {
   redirects['/'] = '/check';
 }
 
+// Resolve the @styles alias for sass @use (rolldown-vite needs it set explicitly)
+const stylesDir = fileURLToPath(new URL('./src/styles', import.meta.url));
+
+// View transition modules ClientRouter loads, for Vite to pre-bundle in dev
+const transitionModules = [
+  'astro/virtual-modules/transitions-events.js',
+  'astro/virtual-modules/transitions-router.js',
+  'astro/virtual-modules/transitions-swap-functions.js',
+  'astro/virtual-modules/transitions-types.js',
+];
+
 // Export Astro configuration
-export default defineConfig({ output, base, integrations, site, adapter, redirects });
+export default defineConfig({
+  output,
+  base,
+  integrations,
+  site,
+  adapter,
+  redirects,
+  vite: {
+    resolve: { alias: { '@styles': stylesDir } },
+    optimizeDeps: { include: transitionModules },
+  },
+});

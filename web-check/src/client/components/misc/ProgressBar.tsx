@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import styled from '@emotion/styled';
 import colors from 'client/styles/colors';
 import Card from 'client/components/Form/Card';
-import Heading from 'client/components/Form/Heading';
-import { allCardIds } from 'client/jobs/registry';
+import { formatNumber } from 'client/utils/format';
 
 export type LoadingState = 'success' | 'loading' | 'skipped' | 'error' | 'timed-out';
 
 export interface LoadingJob {
+  id: string;
   name: string;
   state: LoadingState;
   error?: string;
@@ -20,7 +20,7 @@ const STATE_META: Record<LoadingState, { emoji: string; color: string }> = {
   loading: { emoji: '🔄', color: colors.info },
   error: { emoji: '❌', color: colors.danger },
   'timed-out': { emoji: '⏸️', color: colors.warning },
-  skipped: { emoji: '⏭️', color: colors.neutral },
+  skipped: { emoji: '⏭️', color: colors.textColorTertiary },
 };
 
 // Tally jobs by their loading state in a single pass
@@ -47,7 +47,7 @@ const stateToPercent = (jobs: LoadingJob[]): Record<LoadingState, number> => {
 
 const LoadCard = styled(Card)`
   margin: 0 auto;
-  width: 95vw;
+  width: var(--page-width);
   max-height: 100%;
   position: relative;
 `;
@@ -77,7 +77,7 @@ const Collapsible = styled.div`
 const ProgressBarContainer = styled.div`
   width: 100%;
   height: 0.5rem;
-  background: ${colors.bgShadowColor};
+  background: ${colors.backgroundSunken};
   border-radius: 4px;
   overflow: hidden;
 `;
@@ -131,7 +131,7 @@ const Details = styled.details`
         cursor: pointer;
         &:hover,
         &:focus-visible {
-          color: ${colors.primary};
+          color: ${colors.primaryIncreasedContrast};
           outline: none;
         }
       }
@@ -142,13 +142,12 @@ const Details = styled.details`
   }
   p.error {
     margin: 0.5rem 0;
-    opacity: 0.75;
     color: ${colors.danger};
   }
 `;
 
 const AboutPageLink = styled.a`
-  color: ${colors.primary};
+  color: ${colors.primaryIncreasedContrast};
 `;
 
 const SummaryContainer = styled.div`
@@ -190,7 +189,7 @@ const SummaryContainer = styled.div`
 
 const ReShowRow = styled.div`
   margin: 0 auto;
-  width: 95vw;
+  width: var(--page-width);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -208,31 +207,31 @@ const ReShowRow = styled.div`
       &:hover,
       &:focus-visible {
         text-decoration: underline;
-        color: ${colors.primary};
+        color: ${colors.primaryIncreasedContrast};
         outline: none;
       }
     }
   }
 `;
 
-// Re-open trigger styled to match the repo's filter buttons (shadow grows on hover)
+// Re-open trigger styled to match the site's outlined buttons
 const ShowLoadStateButton = styled.button`
-  background: ${colors.backgroundLighter};
+  background: ${colors.backgroundRaised};
   color: ${colors.textColor};
-  border: none;
+  border: 1px solid ${colors.primaryTransparent};
   padding: 0.3rem 0.7rem;
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 0.9rem;
+  white-space: nowrap;
   cursor: pointer;
-  box-shadow: 2px 2px 0px ${colors.bgShadowColor};
   transition:
-    box-shadow 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
     color 0.2s ease-in-out;
   &:hover,
   &:focus-visible {
-    color: ${colors.primary};
-    box-shadow: 4px 4px 0px ${colors.bgShadowColor};
+    color: ${colors.primaryIncreasedContrast};
+    border-color: ${colors.primary};
     outline: none;
   }
 `;
@@ -250,7 +249,7 @@ const DismissButton = styled.button`
   font-family: var(--font-mono);
   cursor: pointer;
   &:hover {
-    color: ${colors.primary};
+    color: ${colors.primaryIncreasedContrast};
   }
 `;
 
@@ -265,27 +264,14 @@ const FailedJobActionButton = styled.button`
   cursor: pointer;
   transition: all 0.2s ease-in-out;
   &:hover {
-    color: ${colors.primary};
+    color: ${colors.primaryIncreasedContrast};
     border-color: ${colors.primary};
-  }
-`;
-
-const ErrorModalContent = styled.div`
-  p {
-    margin: 0;
-  }
-  pre {
-    color: ${colors.danger};
-    &.info {
-      color: ${colors.warning};
-    }
   }
 `;
 
 interface JobListItemProps {
   job: LoadingJob;
-  showJobDocs: (name: string) => void;
-  showErrorModal: (job: LoadingJob, isInfo?: boolean) => void;
+  showDetails: (id: string) => void;
 }
 
 const REASON_LABEL: Partial<Record<LoadingState, string>> = {
@@ -295,27 +281,24 @@ const REASON_LABEL: Partial<Record<LoadingState, string>> = {
 };
 
 // One row in the details list, showing job state, time and any actions
-const JobListItem = ({ job, showJobDocs, showErrorModal }: JobListItemProps): ReactNode => {
-  const { name, state, timeTaken, retry, error } = job;
+const JobListItem = ({ job, showDetails }: JobListItemProps): ReactNode => {
+  const { id, name, state, timeTaken, retry, error } = job;
   const canRetry = retry && state !== 'success' && state !== 'loading';
   const reasonLabel = error ? REASON_LABEL[state] : undefined;
   return (
     <li>
-      <button type="button" className="docs" onClick={() => showJobDocs(name)}>
+      <button type="button" className="docs" onClick={() => showDetails(id)}>
         {STATE_META[state].emoji} {name}
       </button>
       <StateLabel color={STATE_META[state].color}> ({state})</StateLabel>
-      <i>{timeTaken && state !== 'loading' ? ` Took ${timeTaken} ms` : ''}</i>
+      <i>{timeTaken && state !== 'loading' ? ` Took ${formatNumber(timeTaken)} ms` : ''}</i>
       {canRetry && (
         <FailedJobActionButton type="button" onClick={retry}>
           ↻ Retry
         </FailedJobActionButton>
       )}
       {reasonLabel && (
-        <FailedJobActionButton
-          type="button"
-          onClick={() => showErrorModal(job, state === 'skipped')}
-        >
+        <FailedJobActionButton type="button" onClick={() => showDetails(id)}>
           {reasonLabel}
         </FailedJobActionButton>
       )}
@@ -331,10 +314,10 @@ interface LoadSummaryProps {
 
 // Compact one-liner shown alongside the "Show Load State" button when collapsed
 const LoadSummary = ({ jobs, elapsedMs, onOpen }: LoadSummaryProps): ReactNode => {
-  const total = allCardIds.length;
+  const total = jobs.length;
   const c = countByState(jobs);
   const issues = c.error + c['timed-out'] + c.skipped;
-  const sec = (elapsedMs / 1000).toFixed(1);
+  const sec = formatNumber(elapsedMs / 1000, { digits: 1 });
   const text = c.loading
     ? `Loading ${total - c.loading} of ${total}` + (elapsedMs < 15000 ? ` (${sec}s)` : '')
     : `Finished ${total} lookups in ${sec}s`;
@@ -369,11 +352,12 @@ interface SummaryTextProps {
 
 // Heading-style summary that adapts to loading, all-success and partial-failure
 const SummaryText = ({ jobs, elapsedMs }: SummaryTextProps): ReactNode => {
-  const total = allCardIds.length;
+  const total = jobs.length;
   const c = countByState(jobs);
   const isDone = c.loading === 0;
   const hasIssues = c.error > 0 || c['timed-out'] > 0;
-  const elapsed = elapsedMs >= 10_000 ? `${(elapsedMs / 1000).toFixed(1)} s` : `${elapsedMs} ms`;
+  const seconds = formatNumber(elapsedMs / 1000, { digits: 1 });
+  const elapsed = elapsedMs >= 10_000 ? `${seconds} s` : `${formatNumber(elapsedMs)} ms`;
   const chip = (k: ChipKey) =>
     c[k] > 0 && (
       <span key={k} className={k}>
@@ -402,13 +386,12 @@ const SummaryText = ({ jobs, elapsedMs }: SummaryTextProps): ReactNode => {
 
 interface ProgressLoaderProps {
   loadStatus: LoadingJob[];
-  showModal: (err: ReactNode) => void;
-  showJobDocs: (job: string) => void;
+  showDetails: (id: string) => void;
 }
 
-// Top-of-results progress bar with collapsible per-job detail and error modals
-const ProgressLoader = ({ loadStatus, showModal, showJobDocs }: ProgressLoaderProps): ReactNode => {
-  const [hideLoader, setHideLoader] = useState(false);
+// Top-of-results progress bar with collapsible per-job detail
+const ProgressLoader = ({ loadStatus, showDetails }: ProgressLoaderProps): ReactNode => {
+  const [hideLoader, setHideLoader] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
   const percentages = stateToPercent(loadStatus);
   const isDone = !loadStatus.some((j) => j.state === 'loading');
@@ -419,37 +402,6 @@ const ProgressLoader = ({ loadStatus, showModal, showJobDocs }: ProgressLoaderPr
     const id = setInterval(() => setElapsedMs((v) => v + 100), 100);
     return () => clearInterval(id);
   }, [isDone]);
-
-  // Auto-collapse once when 75% of jobs have settled
-  const autoCollapsedRef = useRef(false);
-  const autoCollapse = useCallback(() => {
-    if (autoCollapsedRef.current) return;
-    autoCollapsedRef.current = true;
-    setHideLoader(true);
-  }, []);
-
-  useEffect(() => {
-    const total = loadStatus.length || 1;
-    const settled = loadStatus.filter((j) => j.state !== 'loading').length;
-    if (settled / total >= 0.75) autoCollapse();
-  }, [loadStatus, autoCollapse]);
-
-  const colorFor = (state: LoadingState) =>
-    state === 'success' && isDone ? colors.primary : STATE_META[state].color;
-
-  const showErrorModal = (job: LoadingJob, isInfo?: boolean) => {
-    const detailsLabel = job.state === 'skipped' ? 'Reason:' : 'Server response:';
-    showModal(
-      <ErrorModalContent>
-        <Heading as="h3">Details for {job.name}</Heading>
-        <p>
-          The {job.name} job ended with state '{job.state}'
-          {job.timeTaken !== undefined ? ` after ${job.timeTaken} ms` : ''}. {detailsLabel}
-        </p>
-        <pre className={isInfo ? 'info' : 'error'}>{job.error}</pre>
-      </ErrorModalContent>,
-    );
-  };
 
   return (
     <div>
@@ -474,7 +426,7 @@ const ProgressLoader = ({ loadStatus, showModal, showJobDocs }: ProgressLoaderPr
               {(Object.keys(percentages) as LoadingState[]).map((state) => (
                 <ProgressBarSegment
                   key={`progress-bar-${state}`}
-                  color={colorFor(state)}
+                  color={STATE_META[state].color}
                   width={percentages[state]}
                   title={`${state} (${Math.round(percentages[state])}%)`}
                 />
@@ -485,12 +437,7 @@ const ProgressLoader = ({ loadStatus, showModal, showJobDocs }: ProgressLoaderPr
               <summary>Show Details</summary>
               <ul>
                 {loadStatus.map((job) => (
-                  <JobListItem
-                    key={job.name}
-                    job={job}
-                    showJobDocs={showJobDocs}
-                    showErrorModal={showErrorModal}
-                  />
+                  <JobListItem key={job.id} job={job} showDetails={showDetails} />
                 ))}
               </ul>
               {loadStatus.some((j) => j.state === 'error') && (
@@ -501,7 +448,7 @@ const ProgressLoader = ({ loadStatus, showModal, showJobDocs }: ProgressLoaderPr
                   required info, or restrictions in the lambda function, or hitting an API limit.
                 </p>
               )}
-              <AboutPageLink href="/check/about" target="_blank" rel="noreferrer">
+              <AboutPageLink href="/checks" target="_blank" rel="noreferrer">
                 Learn More about Web-Check
               </AboutPageLink>
             </Details>

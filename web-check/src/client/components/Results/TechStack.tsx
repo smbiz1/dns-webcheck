@@ -5,12 +5,6 @@ import colors from 'client/styles/colors';
 
 const cardStyles = `
   grid-row: span 2;
-  small {
-    margin-top: 1rem;
-    opacity: 0.5;
-    display: block;
-    a { color: ${colors.primary}; }
-  }
 `;
 
 const TechStackRow = styled.div`
@@ -32,12 +26,12 @@ const TechStackRow = styled.div`
     gap: 0.5rem;
   }
   .tech-version {
-    opacity: 0.5;
+    color: ${colors.textColorTertiary};
   }
   .tech-confidence,
   .tech-categories {
     font-size: 0.8rem;
-    opacity: 0.5;
+    color: ${colors.textColorTertiary};
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -59,13 +53,10 @@ const TechStackRow = styled.div`
     overflow: hidden;
     &.tech-website {
       -webkit-line-clamp: 1;
+      word-break: break-all;
     }
     a {
-      color: ${colors.primary};
-      opacity: 0.75;
-      &:hover {
-        opacity: 1;
-      }
+      color: ${colors.primaryIncreasedContrast};
     }
   }
   .tech-icon {
